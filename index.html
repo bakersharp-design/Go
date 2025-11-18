@@ -1,0 +1,185 @@
+let deck = [];
+let playerHand = [];
+let aiHand = [];
+let communityCards = [];
+let pot = 0;
+let currentBet = 0;
+let playerChips = 1000;
+let aiChips = 1000;
+let playerAction = '';
+let aiAction = '';
+let aiFolded = false;
+let round = 'pre-flop';
+let aiPersonality = Math.floor(Math.random() * 3);
+
+// DOM elements
+const playerChipsEl = document.getElementById('player-chips');
+const aiChipsEl = document.getElementById('ai-chips');
+const potEl = document.getElementById('pot');
+const playerHandEl = document.getElementById('player-hand');
+const communityCardsEl = document.getElementById('community-cards');
+const aiHandEl = document.getElementById('ai-hand');
+const statusEl = document.getElementById('status');
+
+document.getElementById('new-game').addEventListener('click', startGame);
+document.getElementById('bet-button').addEventListener('click', playerBet);
+document.getElementById('call-button').addEventListener('click', playerCall);
+document.getElementById('fold-button').addEventListener('click', playerFold);
+
+function createDeck() {
+    const suits = ['S','H','D','C'];
+    const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+    deck = [];
+    for (let s of suits){
+        for (let v of values){
+            deck.push(v+s);
+        }
+    }
+}
+
+function shuffleDeck(){
+    for(let i=deck.length-1;i>0;i--){
+        let j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]]=[deck[j],deck[i]];
+    }
+}
+
+function dealHands(){
+    playerHand=[deck.pop(), deck.pop()];
+    aiHand=[deck.pop(), deck.pop()];
+}
+
+function dealCommunityCards(){
+    if(round==='flop') communityCards.push(deck.pop(),deck.pop(),deck.pop());
+    else if(round==='turn' || round==='river') communityCards.push(deck.pop());
+}
+
+function cardImage(card){
+    // Example: "AS" -> Ace of Spades
+    return `https://deckofcardsapi.com/static/img/${card}.png`;
+}
+
+function renderHand(handEl, cards, hide=false){
+    handEl.innerHTML = '';
+    for(let c of cards){
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.style.backgroundImage = hide ? 
+            "url('https://upload.wikimedia.org/wikipedia/commons/5/54/Card_back_01.svg')" : 
+            `url('${cardImage(c)}')`;
+        handEl.appendChild(div);
+    }
+}
+
+function displayCards(showAI=false){
+    renderHand(playerHandEl, playerHand);
+    renderHand(communityCardsEl, communityCards);
+    renderHand(aiHandEl, aiHand, !showAI || aiFolded);
+}
+
+function updatePotAndChips(){
+    playerChipsEl.innerText = playerChips;
+    aiChipsEl.innerText = aiChips;
+    potEl.innerText = pot;
+}
+
+// Simplified hand evaluation for AI
+function evaluateHand(hand, community){
+    const cards = hand.concat(community).map(c=>c.slice(0,-1));
+    let strength=0;
+    if(hand[0].slice(0,-1)===hand[1].slice(0,-1)) strength+=50;
+    for(let v of cards){ if(['A','K','Q','J'].includes(v)) strength+=10;}
+    strength+=Math.floor(Math.random()*20);
+    return strength;
+}
+
+function aiTurn(){
+    if(aiFolded) return;
+
+    const handStrength=evaluateHand(aiHand,communityCards);
+    let action='';
+    let aiBetAmount=0;
+
+    let foldThreshold=30, callThreshold=60, bluffChance=0.05;
+    if(aiPersonality===0){ foldThreshold+=10; callThreshold+=10;}
+    if(aiPersonality===2){ foldThreshold-=10; callThreshold-=10; bluffChance=0.15;}
+
+    if(Math.random()<bluffChance){
+        action='bet';
+        aiBetAmount=Math.min(aiChips, Math.floor(Math.random()*50)+20);
+        aiChips-=aiBetAmount; pot+=aiBetAmount; currentBet=aiBetAmount;
+        statusEl.innerText=`AI bluffs and bets ${aiBetAmount}`;
+    } else if(handStrength<foldThreshold){
+        action='fold'; aiFolded=true; statusEl.innerText='AI folds!';
+    } else if(handStrength<callThreshold){
+        action='call'; aiChips-=currentBet; pot+=currentBet; statusEl.innerText='AI calls';
+    } else{
+        action='bet';
+        aiBetAmount=Math.min(aiChips, Math.floor(handStrength*2));
+        aiChips-=aiBetAmount; pot+=aiBetAmount; currentBet=aiBetAmount;
+        statusEl.innerText=`AI bets ${aiBetAmount}`;
+    }
+
+    aiAction=action;
+    updatePotAndChips();
+    nextRound();
+}
+
+function playerBet(){
+    const bet=parseInt(document.getElementById('bet-amount').value);
+    if(!bet||bet>playerChips){ alert('Invalid bet'); return;}
+    playerChips-=bet; pot+=bet; currentBet=bet; playerAction='bet';
+    updatePotAndChips();
+    aiTurn();
+}
+
+function playerCall(){
+    playerChips-=currentBet; pot+=currentBet; playerAction='call';
+    updatePotAndChips();
+    aiTurn();
+}
+
+function playerFold(){
+    playerAction='fold';
+    aiTurn();
+}
+
+function nextRound(){
+    if(playerAction==='fold'){ statusEl.innerText+=' You folded! AI wins.'; displayCards(true); endHand(); return;}
+    if(aiFolded){ statusEl.innerText+=' AI folded! You win.'; displayCards(true); playerChips+=pot; endHand(); return;}
+
+    if(round==='pre-flop') round='flop';
+    else if(round==='flop') round='turn';
+    else if(round==='turn') round='river';
+    else if(round==='river') round='showdown';
+
+    if(round!=='showdown'){
+        dealCommunityCards();
+        displayCards();
+        statusEl.innerText+=` ${round.toUpperCase()} round`;
+        currentBet=0; playerAction=''; aiAction='';
+    } else{
+        displayCards(true);
+        showdown();
+    }
+}
+
+function showdown(){
+    const playerScore=evaluateHand(playerHand,communityCards);
+    const aiScore=evaluateHand(aiHand,communityCards);
+    if(playerScore>aiScore){ statusEl.innerText='You win the pot!'; playerChips+=pot;}
+    else if(aiScore>playerScore){ statusEl.innerText='AI wins the pot!'; aiChips+=pot;}
+    else{ statusEl.innerText="It's a tie!"; playerChips+=pot/2; aiChips+=pot/2;}
+    endHand();
+}
+
+function endHand(){
+    pot=0; currentBet=0; round='pre-flop'; playerAction=''; aiAction=''; aiFolded=false;
+    updatePotAndChips();
+}
+
+function startGame(){
+    createDeck(); shuffleDeck(); dealHands(); communityCards=[];
+    displayCards(); statusEl.innerText='Pre-flop round!';
+    currentBet=0; updatePotAndChips();
+}
